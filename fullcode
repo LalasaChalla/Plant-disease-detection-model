@@ -1,0 +1,276 @@
+!pip install -q kaggle
+
+from google.colab import files
+files.upload()  # Upload kaggle.json here
+
+!mkdir -p ~/.kaggle
+!cp kaggle.json ~/.kaggle/
+!chmod 600 ~/.kaggle/kaggle.json
+
+!kaggle datasets download -d emmarex/plantdisease
+!unzip plantdisease.zip -d PlantVillage
+
+import tensorflow as tf
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+# Path to dataset
+data_dir = "/content/PlantVillage/PlantVillage"
+
+# Preprocessing with augmentation
+datagen = ImageDataGenerator(
+    rescale=1./255,
+    validation_split=0.2,
+    rotation_range=20,
+    zoom_range=0.15,
+    horizontal_flip=True,
+)
+
+train_gen = datagen.flow_from_directory(
+    data_dir, target_size=(128, 128), batch_size=32,
+    class_mode='categorical', subset='training'
+)
+
+val_gen = datagen.flow_from_directory(
+    data_dir, target_size=(128, 128), batch_size=32,
+    class_mode='categorical', subset='validation'
+)
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+
+model = Sequential([
+    Conv2D(32, (3,3), activation='relu', input_shape=(128,128,3)),
+    MaxPooling2D(2,2),
+    Conv2D(64, (3,3), activation='relu'),
+    MaxPooling2D(2,2),
+    Flatten(),
+    Dense(128, activation='relu'),
+    Dropout(0.3),
+    Dense(train_gen.num_classes, activation='softmax')
+])
+
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+model.fit(train_gen, validation_data=val_gen, epochs=10)
+#validation accuracy of model
+loss, accuracy = model.evaluate(val_gen)
+print(f"Validation Accuracy: {accuracy * 100:.2f}%")
+#saving model for futher use
+model.save("plant_disease_model.keras")
+#a dictionary for the 15 classes in dataset that specifies a cure for the disease with certain locations
+localized_cures = {
+    "Tomato___Late_blight": {
+        "Maharashtra": "Use Mancozeb fungicide; avoid overwatering during monsoon.",
+        "Tamil Nadu": "Use copper-based sprays; plant-resistant varieties.",
+        "Punjab": "Spray Metalaxyl; improve soil drainage.",
+    },
+    "Potato___Early_blight": {
+        "Maharashtra": "Use neem oil every 5 days; keep foliage dry.",
+        "Tamil Nadu": "Try Bordeaux mix spray; early morning only.",
+        "West Bengal": "Maintain crop rotation; use Ridomil Gold.",
+    },
+    "Tomato___Leaf_Mold": {
+        "Kerala": "Use sulfur-based fungicide; improve air circulation in greenhouses.",
+        "Karnataka": "Apply copper oxychloride spray weekly.",
+        "Andhra Pradesh": "Avoid nighttime watering; remove infected leaves.",
+    },
+    "Tomato___Septoria_leaf_spot": {
+        "Maharashtra": "Use fungicides with chlorothalonil; ensure good airflow.",
+        "Tamil Nadu": "Apply neem oil and prune lower leaves.",
+        "Haryana": "Avoid wetting leaves while watering; use disease-free seeds.",
+    },
+    "Tomato___Bacterial_spot": {
+        "Punjab": "Spray copper-based bactericides; use certified seeds.",
+        "Odisha": "Avoid working with wet plants; rotate crops.",
+        "UP": "Remove infected leaves; sterilize tools regularly.",
+    },
+    "Tomato___Target_Spot": {
+        "Bihar": "Use azoxystrobin sprays; monitor for early lesions.",
+        "Karnataka": "Use resistant varieties; apply mancozeb during early stages.",
+    },
+    "Tomato___Tomato_Yellow_Leaf_Curl_Virus": {
+        "Telangana": "Control whiteflies using sticky traps; use virus-free seedlings.",
+        "Maharashtra": "Cover young plants with mesh; spray imidacloprid for vector control.",
+        "Gujarat": "Plant resistant hybrids like Arka Rakshak.",
+    },
+    "Tomato___Tomato_mosaic_virus": {
+        "UP": "Disinfect hands and tools; remove infected plants immediately.",
+        "Kerala": "Avoid tobacco use near fields; use resistant seeds.",
+    },
+    "Tomato___healthy": {
+        "All": "No treatment needed. Maintain good farming practices.",
+    },
+    "Pepper,_bell___Bacterial_spot": {
+        "Tamil Nadu": "Spray fixed copper weekly; use mulch to reduce splash spread.",
+        "Punjab": "Avoid overhead irrigation; rotate with non-host crops.",
+        "Maharashtra": "Use certified, disease-free seeds; solarize soil before planting.",
+    },
+    "Pepper,_bell___healthy": {
+        "All": "No action needed. Monitor regularly for early signs of disease.",
+    },
+    "Potato___healthy": {
+        "All": "Maintain well-drained soil; fertilize with compost or organic manure.",
+    },
+    "Corn_(maize)___Common_rust_": {
+        "Andhra Pradesh": "Use resistant varieties; remove alternate hosts like barberry.",
+        "Odisha": "Apply Dithane M-45 during early stages.",
+    },
+    "Corn_(maize)___Northern_Leaf_Blight": {
+        "UP": "Use hybrid seeds resistant to blight; spray Propiconazole.",
+        "Maharashtra": "Practice crop rotation; use Tricyclazole in early growth stage.",
+    },
+    "Corn_(maize)___healthy": {
+        "All": "Ensure balanced irrigation and nutrients; monitor weekly for rust or blight.",
+    }
+}
+class_names = list(train_gen.class_indices.keys())
+model.summary()
+#augumentation 
+import numpy as np
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing import image
+import matplotlib.pyplot as plt
+def load_and_preprocess_image(img_path):
+    img = image.load_img(img_path, target_size=(256, 256))  
+    plt.imshow(img) 
+    plt.axis("off")
+    plt.show()
+
+    img_array = image.img_to_array(img) / 255.0             
+    img_array = np.expand_dims(img_array, axis=0)           
+    return img_array
+#flatten grayscale process for easier processing
+def preprocess_image_flatten_grayscale(img_path):
+    img = image.load_img(img_path, color_mode='grayscale', target_size=(256, 225))
+
+    img_array = image.img_to_array(img) / 255.0
+    img_flat = img_array.flatten()
+    img_input = np.expand_dims(img_flat, axis=0)
+    return img_input
+import numpy as np
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing.image import load_img, img_to_array
+import matplotlib.pyplot as plt
+
+# Loading the trained model
+model = load_model('plant_disease_model.keras')
+
+# Localized cures dictionary (your existing one)
+localized_cures = {
+    "Tomato___Late_blight": {
+        "Maharashtra": "Use Mancozeb fungicide; avoid overwatering during monsoon.",
+        "Tamil Nadu": "Use copper-based sprays; plant-resistant varieties.",
+        "Punjab": "Spray Metalaxyl; improve soil drainage.",
+    },
+    "Potato___Early_blight": {
+        "Maharashtra": "Use neem oil every 5 days; keep foliage dry.",
+        "Tamil Nadu": "Try Bordeaux mix spray; early morning only.",
+        "West Bengal": "Maintain crop rotation; use Ridomil Gold.",
+    },
+    "Tomato___Leaf_Mold": {
+        "Kerala": "Use sulfur-based fungicide; improve air circulation in greenhouses.",
+        "Karnataka": "Apply copper oxychloride spray weekly.",
+        "Andhra Pradesh": "Avoid nighttime watering; remove infected leaves.",
+    },
+    "Tomato___Septoria_leaf_spot": {
+        "Maharashtra": "Use fungicides with chlorothalonil; ensure good airflow.",
+        "Tamil Nadu": "Apply neem oil and prune lower leaves.",
+        "Haryana": "Avoid wetting leaves while watering; use disease-free seeds.",
+    },
+    "Tomato___Bacterial_spot": {
+        "Punjab": "Spray copper-based bactericides; use certified seeds.",
+        "Odisha": "Avoid working with wet plants; rotate crops.",
+        "UP": "Remove infected leaves; sterilize tools regularly.",
+    },
+    "Tomato___Target_Spot": {
+        "Bihar": "Use azoxystrobin sprays; monitor for early lesions.",
+        "Karnataka": "Use resistant varieties; apply mancozeb during early stages.",
+    },
+    "Tomato___Tomato_Yellow_Leaf_Curl_Virus": {
+        "Telangana": "Control whiteflies using sticky traps; use virus-free seedlings.",
+        "Maharashtra": "Cover young plants with mesh; spray imidacloprid for vector control.",
+        "Gujarat": "Plant resistant hybrids like Arka Rakshak.",
+    },
+    "Tomato___Tomato_mosaic_virus": {
+        "UP": "Disinfect hands and tools; remove infected plants immediately.",
+        "Kerala": "Avoid tobacco use near fields; use resistant seeds.",
+    },
+    "Tomato___healthy": {
+        "All": "No treatment needed. Maintain good farming practices.",
+    },
+    "Pepper,_bell___Bacterial_spot": {
+        "Tamil Nadu": "Spray fixed copper weekly; use mulch to reduce splash spread.",
+        "Punjab": "Avoid overhead irrigation; rotate with non-host crops.",
+        "Maharashtra": "Use certified, disease-free seeds; solarize soil before planting.",
+    },
+    "Pepper,_bell___healthy": {
+        "All": "No action needed. Monitor regularly for early signs of disease.",
+    },
+    "Potato___healthy": {
+        "All": "Maintain well-drained soil; fertilize with compost or organic manure.",
+    },
+    "Corn_(maize)___Common_rust_": {
+        "Andhra Pradesh": "Use resistant varieties; remove alternate hosts like barberry.",
+        "Odisha": "Apply Dithane M-45 during early stages.",
+    },
+    "Corn_(maize)___Northern_Leaf_Blight": {
+        "UP": "Use hybrid seeds resistant to blight; spray Propiconazole.",
+        "Maharashtra": "Practice crop rotation; use Tricyclazole in early growth stage.",
+    },
+    "Corn_(maize)___healthy": {
+        "All": "Ensure balanced irrigation and nutrients; monitor weekly for rust or blight.",
+    }
+}
+
+# Get class names 
+disease_names = list(localized_cures.keys())
+
+def preprocess_image(image_path):
+    # Load image as RGB 128x128 (model input size)
+    img = load_img(image_path, target_size=(128, 128))  # default color_mode='rgb'
+    img_array = img_to_array(img) / 255.0               # normalize to 0-1
+    img_array = np.expand_dims(img_array, axis=0)       # shape: (1, 128, 128, 3)
+    return img_array
+
+def predict_disease_with_cure(image_path, user_region):
+    x_input = preprocess_image(image_path)
+    pred_probs = model.predict(x_input)
+    pred_class_index = np.argmax(pred_probs)
+
+    predicted_disease = disease_names[pred_class_index]
+
+    cure = localized_cures.get(predicted_disease, {}).get(user_region)
+    if cure is None:
+        cure = localized_cures.get(predicted_disease, {}).get("All", "No cure info for this region.")
+
+    # Display the image with disease and cure
+    img = load_img(image_path, target_size=(128, 128))
+    plt.imshow(img)
+    plt.axis('off')
+    plt.title(f"Disease: {predicted_disease}\nCure: {cure}")
+    plt.show()
+
+    return predicted_disease, cure
+
+# Example1
+image_path = '/content/plantdisease_image.jpg'  
+user_region = 'Tamil Nadu' 
+
+disease, cure = predict_disease_with_cure(image_path, user_region)
+print(f"Predicted Disease: {disease}")
+print(f"Cure Suggestion: {cure}")
+#calculation of prediction probability and accuracy check of confidence of model
+import numpy as np
+from tensorflow.keras.preprocessing import image
+
+img_path = '/content/plantdisease_image.jpg'
+img = image.load_img(img_path, target_size=(128, 128))
+img_array = image.img_to_array(img) / 255.0
+img_array = np.expand_dims(img_array, axis=0)  
+
+pred_probs = model.predict(img_array)[0] 
+
+predicted_class_index = np.argmax(pred_probs)
+confidence_score = pred_probs[predicted_class_index]
+
+print(f"Predicted disease index: {predicted_class_index}")
+print(f"Confidence (probability) for prediction: {confidence_score:.2f}")
+
